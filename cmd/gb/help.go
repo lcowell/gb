@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 func init() {
 	registerCommand(helpProject)
+	loadPlugins()
 }
 
 var helpProject = &cmd.Command{
@@ -133,6 +135,17 @@ func printUsage(w io.Writer) {
 	bw := bufio.NewWriter(w)
 	tmpl(bw, usageTemplate, sortedCommands())
 	bw.Flush()
+}
+
+func loadPlugins() {
+	paths := strings.Split(os.Getenv("PATH"), ":")
+	names, err := findPlugins(paths)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, name := range names {
+		commands[name] = &cmd.Command{Name: name}
+	}
 }
 
 func sortedCommands() []*cmd.Command {

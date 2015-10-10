@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/constabulary/gb/cmd"
 )
@@ -35,4 +37,19 @@ func lookupPlugin(arg string) (string, error) {
 		return "", fmt.Errorf("plugin: unable to locate %q: %v", plugin, err)
 	}
 	return path, nil
+}
+
+func findPlugins(paths []string) ([]string, error) {
+	pluginNames := []string{}
+
+	for _, path := range paths {
+		filepath.Walk(path, func(path string, f os.FileInfo, err error) error {
+			bName := filepath.Base(path)
+			if len(bName) > 3 && bName[0:3] == "gb-" {
+				pluginNames = append(pluginNames, bName[3:len(bName)])
+			}
+			return nil
+		})
+	}
+	return pluginNames, nil
 }
