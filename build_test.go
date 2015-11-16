@@ -10,14 +10,9 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-
-	"github.com/constabulary/gb/log"
 )
 
 func TestBuild(t *testing.T) {
-	log.Verbose = false
-	defer func() { log.Verbose = false }()
-
 	opts := func(o ...func(*Context) error) []func(*Context) error { return o }
 	tests := []struct {
 		pkg  string
@@ -57,6 +52,9 @@ func TestBuild(t *testing.T) {
 		pkg: "extestonly",
 		err: nil,
 	}, {
+		pkg: "mainnoruntime",
+		err: nil,
+	}, {
 		pkg: "h", // imports "blank", which is blank, see issue #131
 		err: fmt.Errorf("no buildable Go source files in %s", filepath.Join(getwd(t), "testdata", "src", "blank")),
 	}, {
@@ -76,6 +74,8 @@ func TestBuild(t *testing.T) {
 	proj := testProject(t)
 	for _, tt := range tests {
 		ctx, err := proj.NewContext(tt.opts...)
+		ctx.Force = true
+		ctx.SkipInstall = true
 		defer ctx.Destroy()
 		pkg, err := ctx.ResolvePackage(tt.pkg)
 		if !sameErr(err, tt.err) {
@@ -92,8 +92,6 @@ func TestBuild(t *testing.T) {
 }
 
 func TestBuildPackage(t *testing.T) {
-	log.Verbose = false
-	defer func() { log.Verbose = false }()
 	tests := []struct {
 		pkg string
 		err error
@@ -145,8 +143,6 @@ func TestBuildPackage(t *testing.T) {
 }
 
 func TestBuildPackages(t *testing.T) {
-	log.Verbose = false
-	defer func() { log.Verbose = false }()
 	tests := []struct {
 		pkgs    []string
 		actions []string

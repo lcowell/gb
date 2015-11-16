@@ -57,9 +57,6 @@ Flags:
 		sets the base of the project root search path from the current working
 		directory to the value supplied. Effectively gb changes working
 		directory to this path before searching for the project root.
-	-v
-		increases verbosity, effectively lowering the output level from INFO
-		to DEBUG.
 	-dotfile
 		if provided, gb will output a dot formatted file of the build steps to
 		be performed.
@@ -163,7 +160,7 @@ gb plugins are executed from the parent gb process with the environment
 variable, GB_PROJECT_DIR set to the root of the current project.
 
 gb plugins can be executed directly but this is rarely useful, so authors
-should attempt to diagnose this by looking for the presence of the 
+should attempt to diagnose this by looking for the presence of the
 GB_PROJECT_DIR environment key.
 
 

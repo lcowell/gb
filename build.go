@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 // Build builds each of pkgs in succession. If pkg is a command, then the results of build include
@@ -44,15 +44,15 @@ func BuildPackages(pkgs ...*Package) (*Action, error) {
 	t0 := time.Now()
 	build := Action{
 		Name: fmt.Sprintf("build: %s", strings.Join(names(pkgs), ",")),
-		Task: TaskFn(func() error {
-			log.Debugf("build duration: %v %v", time.Since(t0), pkgs[0].Statistics.String())
+		Run: func() error {
+			debug.Debugf("build duration: %v %v", time.Since(t0), pkgs[0].Statistics.String())
 			return nil
-		}),
+		},
 	}
 
 	for _, pkg := range pkgs {
 		if len(pkg.GoFiles)+len(pkg.CgoFiles) == 0 {
-			log.Debugf("skipping %v: no go files", pkg.ImportPath)
+			debug.Debugf("skipping %v: no go files", pkg.ImportPath)
 			continue
 		}
 		a, err := BuildPackage(targets, pkg)
@@ -133,9 +133,7 @@ func Compile(pkg *Package, deps ...*Action) (*Action, error) {
 	compile := Action{
 		Name: fmt.Sprintf("compile: %s", pkg.ImportPath),
 		Deps: deps,
-		Task: TaskFn(func() error {
-			return gc(pkg, gofiles)
-		}),
+		Run:  func() error { return gc(pkg, gofiles) },
 	}
 
 	// step 3. are there any .s files to assemble.
@@ -145,12 +143,12 @@ func Compile(pkg *Package, deps ...*Action) (*Action, error) {
 		ofile := filepath.Join(pkg.Workdir(), pkg.ImportPath, stripext(sfile)+".6")
 		assemble = append(assemble, &Action{
 			Name: fmt.Sprintf("asm: %s/%s", pkg.ImportPath, sfile),
-			Task: TaskFn(func() error {
+			Run: func() error {
 				t0 := time.Now()
 				err := pkg.tc.Asm(pkg, pkg.Dir, ofile, filepath.Join(pkg.Dir, sfile))
 				pkg.Record("asm", time.Since(t0))
 				return err
-			}),
+			},
 			// asm depends on compile because compile will generate the local go_asm.h
 			Deps: []*Action{&compile},
 		})
@@ -166,7 +164,7 @@ func Compile(pkg *Package, deps ...*Action) (*Action, error) {
 			Deps: []*Action{
 				&compile,
 			},
-			Task: TaskFn(func() error {
+			Run: func() error {
 				// collect .o files, ofiles always starts with the gc compiled object.
 				// TODO(dfc) objfile(pkg) should already be at the top of this set
 				ofiles = append(
@@ -179,7 +177,7 @@ func Compile(pkg *Package, deps ...*Action) (*Action, error) {
 				err := pkg.tc.Pack(pkg, ofiles...)
 				pkg.Record("pack", time.Since(t0))
 				return err
-			}),
+			},
 		}
 		pack.Deps = append(pack.Deps, assemble...)
 		build = &pack
@@ -188,37 +186,61 @@ func Compile(pkg *Package, deps ...*Action) (*Action, error) {
 	// should this package be cached
 	// TODO(dfc) pkg.SkipInstall should become Install
 	if !pkg.SkipInstall && pkg.Scope != "test" {
-		install := Action{
+		build = &Action{
 			Name: fmt.Sprintf("install: %s", pkg.ImportPath),
-			Deps: []*Action{
-				build,
-			},
-			Task: TaskFn(func() error {
-				return copyfile(pkgfile(pkg), objfile(pkg))
-			}),
+			Deps: []*Action{build},
+			Run:  func() error { return copyfile(pkgfile(pkg), objfile(pkg)) },
 		}
-		build = &install
 	}
 
 	// if this is a main package, add a link stage
 	if pkg.isMain() {
-		link := Action{
+		build = &Action{
 			Name: fmt.Sprintf("link: %s", pkg.ImportPath),
 			Deps: []*Action{build},
-			Task: TaskFn(func() error {
-				return link(pkg)
-			}),
+			Run:  func() error { return link(pkg) },
 		}
-		build = &link
+	}
+	if pkg.Scope != "test" {
+		// if this package is not compiled in test scope, then
+		// log the name of the package when complete.
+		build.Run = logInfoFn(build.Run, pkg.ImportPath)
 	}
 	return build, nil
+}
+
+func logInfoFn(fn func() error, s string) func() error {
+	return func() error {
+		err := fn()
+		fmt.Println(s)
+		return err
+	}
 }
 
 // BuildDependencies returns a slice of Actions representing the steps required
 // to build all dependant packages of this package.
 func BuildDependencies(targets map[string]*Action, pkg *Package) ([]*Action, error) {
 	var deps []*Action
-	for _, i := range pkg.Imports() {
+	pkgs := pkg.Imports()
+
+	if pkg.isMain() {
+		extra := []string{
+			// all binaries depend on runtime, even if they do not
+			// explicitly import it.
+			"runtime",
+		}
+		for _, i := range extra {
+			if pkg.shouldignore(i) {
+				continue
+			}
+			p, err := pkg.ResolvePackage(i)
+			if err != nil {
+				return nil, err
+			}
+			pkgs = append(pkgs, p)
+		}
+	}
+	for _, i := range pkgs {
 		a, err := BuildPackage(targets, i)
 		if err != nil {
 			return nil, err
@@ -234,10 +256,6 @@ func BuildDependencies(targets map[string]*Action, pkg *Package) ([]*Action, err
 
 func gc(pkg *Package, gofiles []string) error {
 	t0 := time.Now()
-	if pkg.Scope != "test" {
-		// only log compilation message if not in test scope
-		log.Infof(pkg.ImportPath)
-	}
 	includes := pkg.IncludePaths()
 	importpath := pkg.ImportPath
 	if pkg.Scope == "test" && pkg.ExtraIncludes != "" {

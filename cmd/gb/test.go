@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/constabulary/gb"
 	"github.com/constabulary/gb/cmd"
+	"github.com/constabulary/gb/test"
 )
 
 func init() {
@@ -43,12 +45,20 @@ See 'go help test'.
 	Run: func(ctx *gb.Context, args []string) error {
 		ctx.Force = F
 		ctx.SkipInstall = FF
-		pkgs, err := cmd.ResolvePackagesWithTests(ctx, args...)
+		r := test.TestResolver(ctx)
+
+		// gb build builds packages in dependency order, however
+		// gb test tests packages in alpha order. This matches the
+		// expected behaviour from go test; tests are executed in
+		// stable order.
+		sort.Strings(args)
+
+		pkgs, err := gb.ResolvePackages(r, args...)
 		if err != nil {
 			return err
 		}
 
-		test, err := cmd.TestPackages(cmd.TestFlags(tfs), pkgs...)
+		test, err := test.TestPackages(TestFlags(tfs), pkgs...)
 		if err != nil {
 			return err
 		}
@@ -67,7 +77,7 @@ See 'go help test'.
 	AddFlags: addTestFlags,
 	FlagParse: func(flags *flag.FlagSet, args []string) error {
 		var err error
-		args, tfs, err = cmd.TestFlagsExtraParse(args[2:])
+		args, tfs, err = TestFlagsExtraParse(args[2:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gb test: %s\n", err)
 			fmt.Fprintf(os.Stderr, `run "go help test" or "go help testflag" for more information`+"\n")

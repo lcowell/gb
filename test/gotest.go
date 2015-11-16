@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package cmd
+package test
 
 // imported from $GOROOT/src/cmd/go/test.go
 
@@ -24,7 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/constabulary/gb"
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 type coverInfo struct {
@@ -92,7 +92,7 @@ func loadTestFuncs(ptest *build.Package) (*testFuncs, error) {
 	t := &testFuncs{
 		Package: ptest,
 	}
-	log.Debugf("loadTestFuncs: %v, %v", ptest.TestGoFiles, ptest.XTestGoFiles)
+	debug.Debugf("loadTestFuncs: %v, %v", ptest.TestGoFiles, ptest.XTestGoFiles)
 	for _, file := range ptest.TestGoFiles {
 		if err := t.load(filepath.Join(ptest.Dir, file), "_test", &t.ImportTest, &t.NeedTest); err != nil {
 			return nil, err

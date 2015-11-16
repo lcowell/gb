@@ -7,12 +7,11 @@ package gb
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 // Toolchain represents a standardised set of command line tools
@@ -61,30 +60,8 @@ type Action struct {
 	// Deps identifies the Actions that this Action depends.
 	Deps []*Action
 
-	// Task identifies the that this action represents.
-	Task
-}
-
-// Task represents some work to be performed. It contains a single method
-// Run, which is expected to be executed at most once.
-type Task interface {
-
-	// Run will initiate the work that this task represents and
-	// block until the work is complete.
-	Run() error
-}
-
-// TaskFn is a Task that can execute itself.
-type TaskFn func() error
-
-func (fn TaskFn) Run() error { return fn() }
-
-func mktmpdir() string {
-	d, err := ioutil.TempDir("", "gb")
-	if err != nil {
-		log.Fatalf("could not create temporary directory: %v", err)
-	}
-	return d
+	// Run identifies the task that this action represents.
+	Run func() error
 }
 
 func mkdir(path string) error {
@@ -106,7 +83,7 @@ func copyfile(dst, src string) error {
 		return fmt.Errorf("copyfile: create(%q): %v", dst, err)
 	}
 	defer w.Close()
-	log.Debugf("copyfile(dst: %v, src: %v)", dst, src)
+	debug.Debugf("copyfile(dst: %v, src: %v)", dst, src)
 	_, err = io.Copy(w, r)
 	return err
 }

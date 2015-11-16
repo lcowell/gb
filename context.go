@@ -1,10 +1,10 @@
 package gb
 
 import (
-	"bytes"
 	"fmt"
 	"go/build"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 // Context represents an execution of one or more Targets inside a Project.
@@ -101,9 +101,14 @@ func (p *Project) NewContext(opts ...func(*Context) error) (*Context, error) {
 		},
 		GcToolchain(),
 	}
+	workdir, err := ioutil.TempDir("", "gb")
+	if err != nil {
+		return nil, err
+	}
+
 	ctx := Context{
 		Project:   p,
-		workdir:   mktmpdir(),
+		workdir:   workdir,
 		pkgs:      make(map[string]*Package),
 		buildmode: "exe",
 	}
@@ -132,6 +137,7 @@ func (p *Project) NewContext(opts ...func(*Context) error) (*Context, error) {
 
 		CgoEnabled: build.Default.CgoEnabled,
 	}
+
 	return &ctx, nil
 }
 
@@ -179,32 +185,19 @@ func (c *Context) Workdir() string { return c.workdir }
 
 // ResolvePackage resolves the package at path using the current context.
 func (c *Context) ResolvePackage(path string) (*Package, error) {
-	return loadPackage(c, nil, path)
-}
-
-// ResolvePackageWithTests resolves the package at path using the current context
-// it also resolves the internal and external test dependenices, although these are
-// not returned, only cached in the Context.
-func (c *Context) ResolvePackageWithTests(path string) (*Package, error) {
-	p, err := c.ResolvePackage(path)
+	if path == "." {
+		return nil, fmt.Errorf("%q is not a package", filepath.Join(c.rootdir, "src"))
+	}
+	path, err := relImportPath(filepath.Join(c.rootdir, "src"), path)
 	if err != nil {
 		return nil, err
 	}
-	var imports []string
-	imports = append(imports, p.Package.TestImports...)
-	imports = append(imports, p.Package.XTestImports...)
-	for _, i := range imports {
-		_, err := c.ResolvePackage(i)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return p, nil
+	return loadPackage(c, nil, path)
 }
 
 // Destroy removes the temporary working files of this context.
 func (c *Context) Destroy() error {
-	log.Debugf("removing work directory: %v", c.workdir)
+	debug.Debugf("removing work directory: %v", c.workdir)
 	return os.RemoveAll(c.workdir)
 }
 
@@ -219,22 +212,13 @@ func (c *Context) ctxString() string {
 	return strings.Join(v, "-")
 }
 
-func run(dir string, env []string, command string, args ...string) error {
-	var buf bytes.Buffer
-	err := runOut(&buf, dir, env, command, args...)
-	if err != nil {
-		return fmt.Errorf("# %s %s: %v\n%s", command, strings.Join(args, " "), err, buf.String())
-	}
-	return nil
-}
-
 func runOut(output io.Writer, dir string, env []string, command string, args ...string) error {
 	cmd := exec.Command(command, args...)
 	cmd.Dir = dir
 	cmd.Stdout = output
 	cmd.Stderr = os.Stderr
 	cmd.Env = mergeEnvLists(env, envForDir(cmd.Dir))
-	log.Debugf("cd %s; %s", cmd.Dir, cmd.Args)
+	debug.Debugf("cd %s; %s", cmd.Dir, cmd.Args)
 	err := cmd.Run()
 	return err
 }
@@ -337,7 +321,7 @@ func (c *Context) isCrossCompile() bool {
 }
 
 func matchPackages(c *Context, pattern string) []string {
-	log.Debugf("matchPackages: %v %v", c.srcdirs[0].Root, pattern)
+	debug.Debugf("matchPackages: %v %v", c.srcdirs[0].Root, pattern)
 	match := func(string) bool { return true }
 	treeCanMatch := func(string) bool { return true }
 	if pattern != "all" && pattern != "std" {

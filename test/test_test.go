@@ -1,6 +1,7 @@
-package cmd
+package test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -9,12 +10,9 @@ import (
 	"time"
 
 	"github.com/constabulary/gb"
-	"github.com/constabulary/gb/log"
 )
 
 func TestTest(t *testing.T) {
-	log.Verbose = false
-	defer func() { log.Verbose = false }()
 	tests := []struct {
 		pkg      string
 		testArgs []string
@@ -72,8 +70,8 @@ func TestTest(t *testing.T) {
 	for _, tt := range tests {
 		ctx := testContext(t, gb.Ldflags(tt.ldflags...))
 		defer ctx.Destroy()
-		// TODO(dfc) can we resolve the duplication here ?
-		pkg, err := ctx.ResolvePackageWithTests(tt.pkg)
+		r := TestResolver(ctx)
+		pkg, err := r.ResolvePackage(tt.pkg)
 		if err != nil {
 			t.Errorf("ResolvePackage(%v): want %v, got %v", tt.pkg, tt.err, err)
 			continue
@@ -196,4 +194,39 @@ func TestTestPackages(t *testing.T) {
 			t.Errorf("TestBuildPackages(%v): want %v, got %v", pkgs, expected, actual)
 		}
 	}
+}
+
+func getwd(t *testing.T) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cwd
+}
+
+func testProject(t *testing.T) *gb.Project {
+	cwd := getwd(t)
+	root := filepath.Join(cwd, "..", "testdata")
+	return gb.NewProject(root,
+		gb.SourceDir(filepath.Join(root, "src")),
+	)
+}
+
+func testContext(t *testing.T, opts ...func(*gb.Context) error) *gb.Context {
+	prj := testProject(t)
+	opts = append([]func(*gb.Context) error{gb.GcToolchain()}, opts...)
+	ctx, err := prj.NewContext(opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.Force = true
+	ctx.SkipInstall = true
+	return ctx
+}
+
+func sameErr(e1, e2 error) bool {
+	if e1 != nil && e2 != nil {
+		return e1.Error() == e2.Error()
+	}
+	return e1 == e2
 }

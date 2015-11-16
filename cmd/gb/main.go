@@ -9,7 +9,7 @@ import (
 
 	"github.com/constabulary/gb"
 	"github.com/constabulary/gb/cmd"
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 var (
@@ -24,10 +24,7 @@ const (
 )
 
 func init() {
-	fs.BoolVar(&log.Quiet, "q", log.Quiet, "suppress log messages below ERROR level")
-	fs.BoolVar(&log.Verbose, "v", log.Verbose, "enable log levels below INFO level")
 	fs.StringVar(&cwd, "R", cmd.MustGetwd(), "set the project root") // actually the working directory to start the project root search
-
 	fs.Usage = usage
 }
 
@@ -40,6 +37,11 @@ func registerCommand(command *cmd.Command) {
 }
 
 func main() {
+	fatalf := func(format string, args ...interface{}) {
+		fmt.Fprintf(os.Stderr, "FATAL: "+format+"\n", args...)
+		os.Exit(1)
+	}
+
 	args := os.Args
 	if len(args) < 2 || args[1] == "-h" {
 		fs.Usage()
@@ -61,9 +63,6 @@ func main() {
 		}
 		command = &cmd.Command{
 			Run: func(ctx *gb.Context, args []string) error {
-				if len(args) < 1 {
-					return fmt.Errorf("plugin: no command supplied")
-				}
 				args = append([]string{plugin}, args...)
 
 				env := cmd.MergeEnv(os.Environ(), map[string]string{
@@ -99,7 +98,7 @@ func main() {
 		err = fs.Parse(args[2:])
 	}
 	if err != nil {
-		log.Fatalf("could not parse flags: %v", err)
+		fatalf("could not parse flags: %v", err)
 	}
 
 	args = fs.Args() // reset args to the leftovers from fs.Parse
@@ -108,7 +107,7 @@ func main() {
 	}
 	cwd, err := filepath.Abs(cwd) // if cwd was passed in via -R, make sure it is absolute
 	if err != nil {
-		log.Fatalf("could not make project root absolute: %v", err)
+		fatalf("could not make project root absolute: %v", err)
 	}
 
 	ctx, err := cmd.NewContext(
@@ -119,7 +118,7 @@ func main() {
 		gb.Tags(buildtags...),
 	)
 	if err != nil {
-		log.Fatalf("unable to construct context: %v", err)
+		fatalf("unable to construct context: %v", err)
 	}
 
 	if !noDestroyContext {
@@ -132,11 +131,11 @@ func main() {
 		args = cmd.ImportPaths(ctx, cwd, args)
 	}
 
-	log.Debugf("args: %v", args)
+	debug.Debugf("args: %v", args)
 	if err := command.Run(ctx, args); err != nil {
 		if !noDestroyContext {
 			ctx.Destroy()
 		}
-		log.Fatalf("command %q failed: %v", name, err)
+		fatalf("command %q failed: %v", name, err)
 	}
 }

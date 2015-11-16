@@ -1,8 +1,10 @@
-package cmd
+package test
 
 import (
+	"bytes"
 	"fmt"
 	"go/build"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -11,7 +13,7 @@ import (
 	"time"
 
 	"github.com/constabulary/gb"
-	"github.com/constabulary/gb/log"
+	"github.com/constabulary/gb/debug"
 )
 
 // Test returns a Target representing the result of compiling the
@@ -45,10 +47,10 @@ func TestPackages(flags []string, pkgs ...*gb.Package) (*gb.Action, error) {
 	t0 := time.Now()
 	test := gb.Action{
 		Name: fmt.Sprintf("test: %s", strings.Join(names(pkgs), ",")),
-		Task: gb.TaskFn(func() error {
-			log.Debugf("test duration: %v %v", time.Since(t0), pkgs[0].Statistics.String())
+		Run: func() error {
+			debug.Debugf("test duration: %v %v", time.Since(t0), pkgs[0].Statistics.String())
 			return nil
-		}),
+		},
 	}
 
 	for _, pkg := range pkgs {
@@ -109,17 +111,17 @@ func TestPackage(targets map[string]*gb.Action, pkg *gb.Package, flags []string)
 	testpkg.Scope = "test"
 	testpkg.Stale = true
 
-	// build dependencies
-	deps, err := gb.BuildDependencies(targets, testpkg)
-	if err != nil {
-		return nil, err
-	}
-
 	// only build the internal test if there is Go source or
 	// internal test files.
 	var testobj *gb.Action
 	if len(testpkg.GoFiles)+len(testpkg.CgoFiles)+len(testpkg.TestGoFiles) > 0 {
-		var err error
+
+		// build internal testpkg dependencies
+		deps, err := gb.BuildDependencies(targets, testpkg)
+		if err != nil {
+			return nil, err
+		}
+
 		testobj, err = gb.Compile(testpkg, deps...)
 		if err != nil {
 			return nil, err
@@ -165,16 +167,57 @@ func TestPackage(targets map[string]*gb.Action, pkg *gb.Package, flags []string)
 
 	cmd := exec.Command(testmainpkg.Binfile(), flags...)
 	cmd.Dir = pkg.Dir // tests run in the original source directory
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 
-	log.Debugf("scheduling run of %v", cmd.Args)
+	logInfoFn := func(fn func() error, format string, args ...interface{}) func() error {
+		return func() error {
+			err := fn()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "# %s\n", pkg.ImportPath)
+				io.Copy(os.Stdout, &output)
+			} else {
+				fmt.Println(pkg.ImportPath)
+			}
+			return err
+		}
+	}
+
+	// test binaries can be very large, so always unlink the
+	// binary after the test has run to free up temporary space
+	// technically this is done by ctx.Destroy(), but freeing
+	// the space earlier is important for projects with many
+	// packages
+	withcleanup := func(fn func() error) func() error {
+		return func() error {
+			file := testmainpkg.Binfile()
+			err := fn()
+			os.Remove(file)
+			return err
+		}
+	}
+	fn := withcleanup(cmd.Run)
+	fn = logInfoFn(fn, pkg.ImportPath)
+	// When used with the concurrent executor, building deps and
+	// linking the test binary can cause a lot of disk space to be
+	// pinned as linking will tend to occur more frequenty than retiring
+	// tests.
+	//
+	// To solve this, we merge the testmain compile step (which includes
+	// linking) and the execute and cleanup steps so they are executed
+	// as one atomic operation.
+
 	return &gb.Action{
 		Name: fmt.Sprintf("run: %s", cmd.Args),
-		Deps: []*gb.Action{testmain},
-		Task: gb.TaskFn(func() error {
-			return cmd.Run()
-		}),
+		Deps: testmain.Deps,
+		Run: func() error {
+			err := testmain.Run()
+			if err != nil {
+				return err
+			}
+			return fn()
+		},
 	}, nil
 }
 
@@ -211,4 +254,8 @@ func buildTestMain(pkg *gb.Package) (*gb.Package, error) {
 	testmain.Scope = "test"
 	testmain.ExtraIncludes = filepath.Join(pkg.Workdir(), filepath.FromSlash(pkg.ImportPath), "_test")
 	return testmain, nil
+}
+
+func mkdir(path string) error {
+	return os.MkdirAll(path, 0755)
 }

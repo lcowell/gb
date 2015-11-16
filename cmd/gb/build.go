@@ -80,9 +80,6 @@ Flags:
 		sets the base of the project root search path from the current working
 		directory to the value supplied. Effectively gb changes working
 		directory to this path before searching for the project root.
-	-v
-		increases verbosity, effectively lowering the output level from INFO
-		to DEBUG.
 	-dotfile
 		if provided, gb will output a dot formatted file of the build steps to
 		be performed.
@@ -103,7 +100,7 @@ For more about where packages and binaries are installed, run 'gb help project'.
 		ctx.Force = F
 		ctx.SkipInstall = FF
 
-		pkgs, err := cmd.ResolvePackages(ctx, args...)
+		pkgs, err := gb.ResolvePackages(ctx, args...)
 		if err != nil {
 			return err
 		}
