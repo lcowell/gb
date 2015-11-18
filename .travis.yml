@@ -11,6 +11,8 @@ addons:
   apt:
     packages:
       - libcap-dev # integration-tests/service.v1
+  ssh_known_hosts:
+      - bitbucket.org
 
 install:
   - go get -t -v ./...
